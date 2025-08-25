@@ -1,64 +1,51 @@
-import telebot
-import os
-import requests
-from bs4 import BeautifulSoup
+import logging
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+import feedparser
 
-TOKEN = os.getenv("BOT_TOKEN", "8437051202:AAEonwByisCkzIuPRzQ7d2B0FTp_LyXWF0w")
-bot = telebot.TeleBot(TOKEN)
+logging.basicConfig(
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    level=logging.INFO
+)
 
-# --- دستور start ---
-@bot.message_handler(commands=['start'])
-def send_welcome(message):
-    bot.reply_to(message, "سلام 👋 من ربات خبر مجی هستم. دستور 'news' رو بفرست تا آخرین اخبار ایران رو بیاری برات.")
+# 📌 اینجا توکن رباتت رو بذار
+BOT_TOKEN = "8437051202:AAEonwByisCkzIuPRzQ7d2B0FTp_LyXWF0w"
 
-# --- تابع گرفتن خبر از BBC ---
-def fetch_bbc():
-    url = "https://www.bbc.com/persian/topics/cnq68n4291gt"
-    r = requests.get(url, timeout=10)
-    soup = BeautifulSoup(r.text, "html.parser")
-    titles = [a.get_text() for a in soup.find_all("a") if a.get_text()]
-    return titles[:3]
+# منابع خبری (RSS)
+NEWS_SOURCES = {
+    "BBC": "https://www.bbc.com/persian/index.xml",
+    "DW": "https://rss.dw.com/rdf/rss-farsi-news",
+    "رادیو فردا": "https://www.radiofarda.com/api/zyoeo",
+    "VOA": "https://ir.voanews.com/api/zm$ome",
+    "Euronews": "https://fa.euronews.com/rss?level=theme&name=news"
+}
 
-# --- تابع گرفتن خبر از DW ---
-def fetch_dw():
-    url = "https://www.dw.com/fa-ir/%D8%A7%DB%8C%D8%B1%D8%A7%D9%86/s-10607"
-    r = requests.get(url, timeout=10)
-    soup = BeautifulSoup(r.text, "html.parser")
-    titles = [h.get_text() for h in soup.find_all("a") if h.get_text()]
-    return titles[:3]
-
-# --- دستور news ---
-@bot.message_handler(func=lambda message: message.text.lower() == "news")
-def send_news(message):
-    try:
-        news = []
-
-        # BBC
+# تابع گرفتن خبرها
+def get_latest_news():
+    news_items = []
+    for source, url in NEWS_SOURCES.items():
         try:
-            news += fetch_bbc()
-        except:
-            pass
+            feed = feedparser.parse(url)
+            for entry in feed.entries[:2]:  # از هر منبع ۲ خبر
+                news_items.append(f"📰 [{source}] {entry.title}")
+        except Exception as e:
+            news_items.append(f"⚠️ خطا در دریافت خبر از {source}")
+    return news_items[:10]
 
-        # DW
-        try:
-            news += fetch_dw()
-        except:
-            pass
+# دستور /news
+async def news(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    news_items = get_latest_news()
+    if news_items:
+        message = "📌 آخرین خبرهای ایران:\n\n" + "\n".join(news_items)
+    else:
+        message = "❌ نتونستم خبر جدید پیدا کنم."
+    await update.message.reply_text(message)
 
-        if news:
-            text = "\n\n".join([f"📰 {t}" for t in news[:10]])
-            bot.reply_to(message, f"📌 آخرین خبرهای ایران:\n\n{text}")
-        else:
-            bot.reply_to(message, "⚠️ خبری پیدا نشد. بعداً امتحان کن.")
+# ران اصلی
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("news", news))
+    app.run_polling()
 
-    except Exception as e:
-        bot.reply_to(message, f"❌ خطا: {e}")
-
-# --- اکو کردن بقیه پیام‌ها ---
-@bot.message_handler(func=lambda message: True)
-def echo_all(message):
-    if message.text.lower() != "news":
-        bot.reply_to(message, f"پیام گرفتم: {message.text}")
-
-print("Bot is running...")
-bot.polling()
+if __name__ == "__main__":
+    main()
